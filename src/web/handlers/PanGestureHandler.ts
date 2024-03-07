@@ -442,9 +442,10 @@ export default class PanGestureHandler extends GestureHandler {
       this.begin();
 
       if (this.activateAfterLongPress > 0) {
-        this.activationTimeout = setTimeout(() => {
+        // NOTE: setTimeout return type definition is different for react-native vs web
+        this.activationTimeout = (setTimeout(() => {
           this.activate();
-        }, this.activateAfterLongPress);
+        }, this.activateAfterLongPress) as unknown) as number;
       }
     } else {
       this.velocityX = this.tracker.getVelocityX(event.pointerId);
