@@ -102,9 +102,10 @@ export default class LongPressGestureHandler extends GestureHandler {
 
   private tryActivate(): void {
     if (this.minDurationMs > 0) {
-      this.activationTimeout = setTimeout(() => {
+      // NOTE: setTimeout return type definition is different for react-native vs web
+      this.activationTimeout = (setTimeout(() => {
         this.activate();
-      }, this.minDurationMs);
+      }, this.minDurationMs) as unknown) as number;
     } else if (this.minDurationMs === 0) {
       this.activate();
     }

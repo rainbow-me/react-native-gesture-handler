@@ -87,7 +87,8 @@ export default class TapGestureHandler extends GestureHandler {
   private startTap(): void {
     this.clearTimeouts();
 
-    this.waitTimeout = setTimeout(() => this.fail(), this.maxDurationMs);
+    // NOTE: setTimeout return type definition is different for react-native vs web
+    this.waitTimeout = (setTimeout(() => this.fail(), this.maxDurationMs) as unknown) as number;
   }
 
   private endTap(): void {
@@ -99,7 +100,8 @@ export default class TapGestureHandler extends GestureHandler {
     ) {
       this.activate();
     } else {
-      this.delayTimeout = setTimeout(() => this.fail(), this.maxDelayMs);
+      // NOTE: setTimeout return type definition is different for react-native vs web
+      this.delayTimeout = (setTimeout(() => this.fail(), this.maxDelayMs) as unknown) as number;
     }
   }
 
