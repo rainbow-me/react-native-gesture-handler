@@ -656,7 +656,7 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
   }
 
   fun cancel() {
-    if (state == STATE_ACTIVE || state == STATE_UNDETERMINED || state == STATE_BEGAN) {
+    if (state == STATE_ACTIVE || state == STATE_UNDETERMINED || state == STATE_BEGAN || this.isAwaiting) {
       onCancel()
       moveToState(STATE_CANCELLED)
     }
@@ -762,7 +762,6 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     orchestrator = null
     Arrays.fill(trackedPointerIDs, -1)
     trackedPointersIDsCount = 0
-
     trackedPointersCount = 0
     trackedPointers.fill(null)
     touchEventType = RNGestureHandlerTouchEvent.EVENT_UNDETERMINED
@@ -836,15 +835,15 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     private lateinit var pointerProps: Array<PointerProperties?>
     private lateinit var pointerCoords: Array<PointerCoords?>
     private fun initPointerProps(size: Int) {
-      var size = size
+      var pointerPropsSize = size
       if (!Companion::pointerProps.isInitialized) {
         pointerProps = arrayOfNulls(MAX_POINTERS_COUNT)
         pointerCoords = arrayOfNulls(MAX_POINTERS_COUNT)
       }
-      while (size > 0 && pointerProps[size - 1] == null) {
-        pointerProps[size - 1] = PointerProperties()
-        pointerCoords[size - 1] = PointerCoords()
-        size--
+      while (pointerPropsSize > 0 && pointerProps[pointerPropsSize - 1] == null) {
+        pointerProps[pointerPropsSize - 1] = PointerProperties()
+        pointerCoords[pointerPropsSize - 1] = PointerCoords()
+        pointerPropsSize--
       }
     }
 
