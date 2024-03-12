@@ -208,10 +208,6 @@ class PanGestureHandler(context: Context?) : GestureHandler<PanGestureHandler>()
   }
 
   override fun onHandle(event: MotionEvent, sourceEvent: MotionEvent) {
-    if (!shouldActivateWithMouse(sourceEvent)) {
-      return
-    }
-
     val state = state
     val action = sourceEvent.actionMasked
     if (action == MotionEvent.ACTION_POINTER_UP || action == MotionEvent.ACTION_POINTER_DOWN) {
@@ -229,12 +225,7 @@ class PanGestureHandler(context: Context?) : GestureHandler<PanGestureHandler>()
       lastY = getLastPointerY(sourceEvent, averageTouches)
     }
     if (state == STATE_UNDETERMINED && sourceEvent.pointerCount >= minPointers) {
-      resetProgress()
-      offsetX = 0f
-      offsetY = 0f
-      velocityX = 0f
-      velocityY = 0f
-      velocityTracker = VelocityTracker.obtain()
+      initialize(sourceEvent)
       addVelocityMovement(velocityTracker, sourceEvent)
       begin()
 
@@ -250,7 +241,7 @@ class PanGestureHandler(context: Context?) : GestureHandler<PanGestureHandler>()
       velocityX = velocityTracker!!.xVelocity
       velocityY = velocityTracker!!.yVelocity
     }
-    if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_BUTTON_RELEASE) {
+    if (action == MotionEvent.ACTION_UP) {
       if (state == STATE_ACTIVE) {
         end()
       } else {
@@ -287,6 +278,15 @@ class PanGestureHandler(context: Context?) : GestureHandler<PanGestureHandler>()
 
   override fun onCancel() {
     handler?.removeCallbacksAndMessages(null)
+  }
+
+  override fun onInitialize(event: MotionEvent) {
+    resetProgress()
+    offsetX = 0f
+    offsetY = 0f
+    velocityX = 0f
+    velocityY = 0f
+    velocityTracker = VelocityTracker.obtain()
   }
 
   override fun onReset() {

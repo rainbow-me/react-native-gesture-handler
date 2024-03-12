@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.PointF
 import android.graphics.Rect
-import android.os.Build
 import android.view.MotionEvent
 import android.view.MotionEvent.PointerCoords
 import android.view.MotionEvent.PointerProperties
@@ -58,6 +57,7 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
   var lastAbsolutePositionY = 0f
     private set
 
+  private var isInitialized = false
   private var manualActivation = false
 
   private var lastEventOffsetX = 0f
@@ -68,10 +68,10 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
   protected var orchestrator: GestureHandlerOrchestrator? = null
   private var onTouchEventListener: OnTouchEventListener? = null
   private var interactionController: GestureHandlerInteractionController? = null
-  var pointerType: Int = POINTER_TYPE_OTHER
-    private set
 
-  protected var mouseButton = 0
+  // a field to store a motion event that caused the touch event to be dispatched, in case the state
+  // change is triggered in the callback, this event will be used to initialize the gesture
+  private var eventTriggeringStateChangeInTouchEventHandler: MotionEvent? = null
 
   @Suppress("UNCHECKED_CAST")
   protected fun self(): ConcreteGestureHandlerT = this as ConcreteGestureHandlerT
@@ -93,8 +93,8 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     onTouchEventListener?.onHandlerUpdate(self(), event)
   }
 
-  open fun dispatchTouchEvent() {
-    if (changedTouchesPayload != null) {
+  open fun tryDispatchingTouchEvent() {
+    if (needsPointerData && changedTouchesPayload != null) {
       onTouchEventListener?.onTouchEvent(self())
     }
   }
@@ -163,10 +163,6 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
 
   fun setInteractionController(controller: GestureHandlerInteractionController?): ConcreteGestureHandlerT =
     applySelf { interactionController = controller }
-
-  fun setMouseButton(mouseButton: Int) = apply {
-    this.mouseButton = mouseButton
-  }
 
   fun prepare(view: View?, orchestrator: GestureHandlerOrchestrator?) {
     check(!(this.view != null || this.orchestrator != null)) { "Already prepared or hasn't been reset" }
@@ -380,19 +376,7 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     lastAbsolutePositionY = GestureUtils.getLastPointerY(adaptedTransformedEvent, true)
     lastEventOffsetX = adaptedTransformedEvent.rawX - adaptedTransformedEvent.x
     lastEventOffsetY = adaptedTransformedEvent.rawY - adaptedTransformedEvent.y
-
-    if (sourceEvent.action == MotionEvent.ACTION_DOWN || sourceEvent.action == MotionEvent.ACTION_HOVER_ENTER || sourceEvent.action == MotionEvent.ACTION_HOVER_MOVE) {
-      setPointerType(sourceEvent)
-    }
-
-    if (sourceEvent.action == MotionEvent.ACTION_HOVER_ENTER ||
-      sourceEvent.action == MotionEvent.ACTION_HOVER_MOVE ||
-      sourceEvent.action == MotionEvent.ACTION_HOVER_EXIT
-    ) {
-      onHandleHover(adaptedTransformedEvent, adaptedSourceEvent)
-    } else {
-      onHandle(adaptedTransformedEvent, adaptedSourceEvent)
-    }
+    onHandle(adaptedTransformedEvent, adaptedSourceEvent)
     if (adaptedTransformedEvent != transformedEvent) {
       adaptedTransformedEvent.recycle()
     }
@@ -401,7 +385,7 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     }
   }
 
-  private fun dispatchTouchDownEvent(event: MotionEvent) {
+  private fun handleTouchDownEvent(event: MotionEvent) {
     changedTouchesPayload = null
     touchEventType = RNGestureHandlerTouchEvent.EVENT_TOUCH_DOWN
     val pointerId = event.getPointerId(event.actionIndex)
@@ -419,10 +403,10 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     addChangedPointer(trackedPointers[pointerId]!!)
     extractAllPointersData()
 
-    dispatchTouchEvent()
+    tryDispatchingTouchEvent()
   }
 
-  private fun dispatchTouchUpEvent(event: MotionEvent) {
+  private fun handleTouchUpEvent(event: MotionEvent) {
     extractAllPointersData()
     changedTouchesPayload = null
     touchEventType = RNGestureHandlerTouchEvent.EVENT_TOUCH_UP
@@ -441,10 +425,10 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     trackedPointers[pointerId] = null
     trackedPointersCount--
 
-    dispatchTouchEvent()
+    tryDispatchingTouchEvent()
   }
 
-  private fun dispatchTouchMoveEvent(event: MotionEvent) {
+  private fun handleTouchMoveEvent(event: MotionEvent) {
     changedTouchesPayload = null
     touchEventType = RNGestureHandlerTouchEvent.EVENT_TOUCH_MOVE
     val offsetX = event.rawX - event.x
@@ -471,20 +455,28 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     // only info about one pointer)
     if (pointersAdded > 0) {
       extractAllPointersData()
-      dispatchTouchEvent()
+      tryDispatchingTouchEvent()
     }
   }
 
-  fun updatePointerData(event: MotionEvent) {
-    if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
-      dispatchTouchDownEvent(event)
-      dispatchTouchMoveEvent(event)
-    } else if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP) {
-      dispatchTouchMoveEvent(event)
-      dispatchTouchUpEvent(event)
-    } else if (event.actionMasked == MotionEvent.ACTION_MOVE) {
-      dispatchTouchMoveEvent(event)
+  fun updatePointerData(event: MotionEvent, sourceEvent: MotionEvent) {
+    eventTriggeringStateChangeInTouchEventHandler = sourceEvent
+
+    when (event.actionMasked) {
+      MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+        handleTouchDownEvent(event)
+        handleTouchMoveEvent(event)
+      }
+      MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+        handleTouchMoveEvent(event)
+        handleTouchUpEvent(event)
+      }
+      MotionEvent.ACTION_MOVE -> {
+        handleTouchMoveEvent(event)
+      }
     }
+
+    eventTriggeringStateChangeInTouchEventHandler = null
   }
 
   private fun extractAllPointersData() {
@@ -511,7 +503,7 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     trackedPointersCount = 0
     trackedPointers.fill(null)
 
-    dispatchTouchEvent()
+    tryDispatchingTouchEvent()
   }
 
   private fun addChangedPointer(pointerData: PointerData) {
@@ -688,6 +680,17 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     }
   }
 
+  fun initialize(withEvent: MotionEvent? = null) {
+    if (!isInitialized) {
+      val event = withEvent ?: eventTriggeringStateChangeInTouchEventHandler ?: throw IllegalStateException("No event to initialize handler")
+      onInitialize(event)
+    }
+
+    isInitialized = true
+  }
+
+  open fun onInitialize(event: MotionEvent) {}
+
   // responsible for resetting the state of handler upon activation (may be called more than once
   // if the handler is waiting for failure of other one)
   open fun resetProgress() {}
@@ -696,51 +699,9 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     moveToState(STATE_FAILED)
   }
 
-  protected open fun onHandleHover(event: MotionEvent, sourceEvent: MotionEvent) {}
-
   protected open fun onStateChange(newState: Int, previousState: Int) {}
   protected open fun onReset() {}
   protected open fun onCancel() {}
-
-  private fun isButtonInConfig(clickedButton: Int): Boolean {
-    if (mouseButton == 0) {
-      return clickedButton == MotionEvent.BUTTON_PRIMARY
-    }
-
-    return clickedButton and mouseButton != 0
-  }
-
-  protected fun shouldActivateWithMouse(sourceEvent: MotionEvent): Boolean {
-    // While using mouse, we get both sets of events, for example ACTION_DOWN and ACTION_BUTTON_PRESS. That's why we want to take actions to only one of them.
-    // On API >= 23, we will use events with infix BUTTON, otherwise we use standard action events (like ACTION_DOWN).
-
-    with(sourceEvent) {
-      // To use actionButton, we need API >= 23.
-      if (getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        // While using mouse, we want to ignore default events for touch.
-        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP || action == MotionEvent.ACTION_POINTER_DOWN) {
-          return@shouldActivateWithMouse false
-        }
-
-        // We don't want to do anything if wrong button was clicked. If we received event for BUTTON, we have to use actionButton to get which one was clicked.
-        if (action != MotionEvent.ACTION_MOVE && !isButtonInConfig(actionButton)) {
-          return@shouldActivateWithMouse false
-        }
-
-        // When we receive ACTION_MOVE, we have to check buttonState field.
-        if (action == MotionEvent.ACTION_MOVE && !isButtonInConfig(buttonState)) {
-          return@shouldActivateWithMouse false
-        }
-      } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-        // We do not fully support mouse below API 23, so we will ignore BUTTON events.
-        if (action == MotionEvent.ACTION_BUTTON_PRESS || action == MotionEvent.ACTION_BUTTON_RELEASE) {
-          return@shouldActivateWithMouse false
-        }
-      }
-    }
-
-    return true
-  }
 
   /**
    * Transforms a point in the coordinate space of the wrapperView (GestureHandlerRootView) to
@@ -766,6 +727,7 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     trackedPointersCount = 0
     trackedPointers.fill(null)
     touchEventType = RNGestureHandlerTouchEvent.EVENT_UNDETERMINED
+    isInitialized = false
     onReset()
   }
 
@@ -773,17 +735,6 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     isWithinBounds = true
     closure()
     isWithinBounds = false
-  }
-
-  private fun setPointerType(event: MotionEvent) {
-    val pointerIndex = event.actionIndex
-
-    pointerType = when (event.getToolType(pointerIndex)) {
-      MotionEvent.TOOL_TYPE_FINGER -> POINTER_TYPE_TOUCH
-      MotionEvent.TOOL_TYPE_STYLUS -> POINTER_TYPE_STYLUS
-      MotionEvent.TOOL_TYPE_MOUSE -> POINTER_TYPE_MOUSE
-      else -> POINTER_TYPE_OTHER
-    }
   }
 
   fun setOnTouchEventListener(listener: OnTouchEventListener?): GestureHandler<*> {
@@ -828,10 +779,6 @@ open class GestureHandler<ConcreteGestureHandlerT : GestureHandler<ConcreteGestu
     const val ACTION_TYPE_NATIVE_ANIMATED_EVENT = 2
     const val ACTION_TYPE_JS_FUNCTION_OLD_API = 3
     const val ACTION_TYPE_JS_FUNCTION_NEW_API = 4
-    const val POINTER_TYPE_TOUCH = 0
-    const val POINTER_TYPE_STYLUS = 1
-    const val POINTER_TYPE_MOUSE = 2
-    const val POINTER_TYPE_OTHER = 3
     private const val MAX_POINTERS_COUNT = 12
     private lateinit var pointerProps: Array<PointerProperties?>
     private lateinit var pointerCoords: Array<PointerCoords?>

@@ -105,17 +105,10 @@ class TapGestureHandler : GestureHandler<TapGestureHandler>() {
   }
 
   override fun onHandle(event: MotionEvent, sourceEvent: MotionEvent) {
-    if (!shouldActivateWithMouse(sourceEvent)) {
-      return
-    }
-
     val state = state
     val action = sourceEvent.actionMasked
     if (state == STATE_UNDETERMINED) {
-      offsetX = 0f
-      offsetY = 0f
-      startX = getLastPointerX(sourceEvent, true)
-      startY = getLastPointerY(sourceEvent, true)
+      initialize(sourceEvent)
     }
     if (action == MotionEvent.ACTION_POINTER_UP || action == MotionEvent.ACTION_POINTER_DOWN) {
       offsetX += lastX - startX
@@ -134,14 +127,14 @@ class TapGestureHandler : GestureHandler<TapGestureHandler>() {
     if (shouldFail()) {
       fail()
     } else if (state == STATE_UNDETERMINED) {
-      if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_BUTTON_PRESS) {
+      if (action == MotionEvent.ACTION_DOWN) {
         begin()
       }
       startTap()
     } else if (state == STATE_BEGAN) {
-      if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_BUTTON_RELEASE) {
+      if (action == MotionEvent.ACTION_UP) {
         endTap()
-      } else if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_BUTTON_PRESS) {
+      } else if (action == MotionEvent.ACTION_DOWN) {
         startTap()
       }
     }
@@ -150,6 +143,13 @@ class TapGestureHandler : GestureHandler<TapGestureHandler>() {
   override fun activate(force: Boolean) {
     super.activate(force)
     end()
+  }
+
+  override fun onInitialize(event: MotionEvent) {
+    offsetX = 0f
+    offsetY = 0f
+    startX = getLastPointerX(event, true)
+    startY = getLastPointerY(event, true)
   }
 
   override fun onCancel() {
